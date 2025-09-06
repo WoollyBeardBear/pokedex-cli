@@ -122,7 +122,6 @@ func commandMapBack(c *Config) error {
 		return err
 	}
 	defer res.Body.Close()
-	fmt.Println("right after response")
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		fmt.Println("error reading body")
