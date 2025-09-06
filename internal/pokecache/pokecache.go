@@ -39,6 +39,7 @@ func (c *Cache) Get(key string) ([]byte, bool) {
 	return val, true
 }
 
+// Need to finish!
 func (c *Cache) reapLoop(interval time.Duration) ([]byte, bool) {
 	ticker := time.NewTicker(interval)
 	for {
