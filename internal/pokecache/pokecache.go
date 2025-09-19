@@ -16,41 +16,46 @@ type Cache struct {
 }
 
 func NewCache(interval time.Duration) *Cache {
-	var cache Cache
+	c := &Cache{
+		entries: make(map[string]cacheEntry),
+	}
 
-	cache.reapLoop(interval)
+	go c.reapLoop(interval)
 
-	return *cache
+	return c
 }
 
 func (c *Cache) Add(key string, val []byte) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.entries[key] = val
+	c.entries[key] = cacheEntry{createdAt: time.Now(), val: val}
 
 }
 
 func (c *Cache) Get(key string) ([]byte, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if val, ok := c.entries[key]; !ok {
-		return 0, false
+	entry, ok := c.entries[key]
+	if !ok {
+		return nil, false
 	}
-	return val, true
+	return entry.val, true
 }
 
-// Need to finish!
-func (c *Cache) reapLoop(interval time.Duration) ([]byte, bool) {
+func (c *Cache) reapLoop(interval time.Duration) {
 	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
 	for {
-		if time.Since(ticker) > interval {
-			c.mu.Lock()
+		<-ticker.C
+		c.mu.Lock()
+		func() {
 			defer c.mu.Unlock()
-			for _, entry := range c.entries {
+			for k, entry := range c.entries {
 				if time.Since(entry.createdAt) > interval {
-					delete(c.entries, entry)
+					delete(c.entries, k)
 				}
 			}
-		}
+		}()
 	}
 }
