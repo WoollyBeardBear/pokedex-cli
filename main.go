@@ -8,6 +8,9 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
+
+	"github.com/woollybeardbear/pokedexcli/internal/pokecache"
 )
 
 type cliCommand struct {
@@ -29,6 +32,7 @@ type Locations struct {
 type Config struct {
 	Next     *string
 	Previous *string
+	Cache    *pokecache.Cache
 }
 
 var commands = map[string]cliCommand{
@@ -59,6 +63,8 @@ func main() {
 	var mapConfig Config
 	url := "https://pokeapi.co/api/v2/location-area"
 	mapConfig.Next = &url
+	const baseTime = 5 * time.Millisecond
+	mapConfig.Cache = pokecache.NewCache(baseTime)
 	for {
 		fmt.Print("Pokedex > ")
 		scanner.Scan()
@@ -85,19 +91,34 @@ func commandMap(c *Config) error {
 		fmt.Println("you're on the last page")
 		return nil
 	}
-	res, err := http.Get(*c.Next)
-	if err != nil {
-		fmt.Println("error getting response")
-		return err
-	}
-	defer res.Body.Close()
-	fmt.Println("right after response")
-	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		fmt.Println("error reading body")
-		return err
-	}
+	body, ok := c.Cache.Get(*c.Next)
+	if !ok {
+		res, err := http.Get(*c.Next)
+		if err != nil {
+			fmt.Println("error getting response")
+			return err
+		}
+		defer res.Body.Close()
+		fmt.Println("right after response")
+		body, err := io.ReadAll(res.Body)
+		if err != nil {
+			fmt.Println("error reading body")
+			return err
+		}
+		var locations Locations
+		if err := json.Unmarshal(body, &locations); err != nil {
+			fmt.Printf("error unmarshalling data: %v\n", err)
+			return err
+		}
+		c.Cache.Add(*c.Next, body)
+		c.Next = locations.Next
+		c.Previous = locations.Previous
 
+		for _, location := range locations.Results {
+			fmt.Printf("%s\n", location.Name)
+		}
+		return nil
+	}
 	var locations Locations
 	if err := json.Unmarshal(body, &locations); err != nil {
 		fmt.Printf("error unmarshalling data: %v\n", err)
@@ -105,10 +126,12 @@ func commandMap(c *Config) error {
 	}
 	c.Next = locations.Next
 	c.Previous = locations.Previous
+
 	for _, location := range locations.Results {
 		fmt.Printf("%s\n", location.Name)
 	}
 	return nil
+
 }
 
 func commandMapBack(c *Config) error {
@@ -116,18 +139,33 @@ func commandMapBack(c *Config) error {
 		fmt.Println("you're on the first page")
 		return nil
 	}
-	res, err := http.Get(*c.Previous)
-	if err != nil {
-		fmt.Println("error getting response")
-		return err
-	}
-	defer res.Body.Close()
-	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		fmt.Println("error reading body")
-		return err
-	}
+	body, ok := c.Cache.Get(*c.Previous)
+	if !ok {
+		res, err := http.Get(*c.Previous)
+		if err != nil {
+			fmt.Println("error getting response")
+			return err
+		}
+		defer res.Body.Close()
+		body, err := io.ReadAll(res.Body)
+		if err != nil {
+			fmt.Println("error reading body")
+			return err
+		}
 
+		var locations Locations
+		if err := json.Unmarshal(body, &locations); err != nil {
+			fmt.Printf("error unmarshalling data: %v\n", err)
+			return err
+		}
+		c.Cache.Add(*c.Previous, body)
+		c.Next = locations.Next
+		c.Previous = locations.Previous
+		for _, location := range locations.Results {
+			fmt.Printf("%s\n", location.Name)
+		}
+		return nil
+	}
 	var locations Locations
 	if err := json.Unmarshal(body, &locations); err != nil {
 		fmt.Printf("error unmarshalling data: %v\n", err)
@@ -148,6 +186,6 @@ func commandExit(c *Config) error {
 }
 
 func commandHelp(c *Config) error {
-	fmt.Println("Welcome to the Pokedex!\nUsage:\n\nhelp: Displays a help message\nexit: Exit the Pokedex")
+	fmt.Println("Welcome to the Pokedex!\nUsage:\n\nhelp: Displays a help message\nexit: Exit the Pokedex\nmap: Displays a list of locations in the pokedex\nmapb: Displays the previous list of locations")
 	return nil
 }
